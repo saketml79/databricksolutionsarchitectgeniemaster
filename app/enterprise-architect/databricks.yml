@@ -1,0 +1,49 @@
+bundle:
+  name: enterprise-architect
+
+resources:
+  apps:
+    app:
+      name: "enterprise-architect"
+      description: "Governed Enterprise Architect proposal and diagram review application"
+      source_code_path: ./
+      resources:
+        - name: solutions-architect-model
+          serving_endpoint:
+            name: databricks-claude-sonnet-4-5
+            permission: CAN_QUERY
+        - name: solutions-architect-genie
+          genie_space:
+            space_id: 01f1a400577d1c71b8b1fd2d83cc2df5
+            name: Databricks Solutions Architect Genie
+            permission: CAN_RUN
+        - name: reviewed-knowledge-index
+          uc_securable:
+            securable_full_name: databricks_architect_agent.agent_demo.reviewed_architecture_knowledge
+            securable_type: TABLE
+            permission: SELECT
+        - name: review-sql-warehouse
+          sql_warehouse:
+            id: e3a0fc2c08db05bb
+            permission: CAN_USE
+        - name: architecture-artifacts
+          uc_securable:
+            securable_full_name: databricks_architect_agent.agent_demo.architecture_artifacts
+            securable_type: VOLUME
+            permission: READ_VOLUME
+        - name: architect-request-executor
+          job:
+            id: 527763870636434
+            permission: CAN_MANAGE_RUN
+
+      # Start the app automatically on deploy.
+      lifecycle:
+        started: true
+      user_api_scopes:
+        - sql
+
+targets:
+  default:
+    default: true
+    workspace:
+      host: https://adb-1866518241053589.9.azuredatabricks.net

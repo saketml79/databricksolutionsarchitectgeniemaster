@@ -1,0 +1,7 @@
+resources:
+  dashboards:
+    architecture_topology:
+      display_name: Databricks Solutions Architect - Architecture Topology
+      warehouse_id: e3a0fc2c08db05bb
+      parent_path: /Users/${workspace.current_user.userName}
+      file_path: ../src/dashboards/architecture_topology.lvdash.json

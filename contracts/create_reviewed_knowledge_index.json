@@ -1,0 +1,17 @@
+{
+  "name": "databricks_architect_agent.agent_demo.reviewed_architecture_knowledge",
+  "endpoint_name": "solutions-architect-knowledge-vs",
+  "primary_key": "chunk_id",
+  "index_type": "DELTA_SYNC",
+  "index_subtype": "HYBRID",
+  "delta_sync_index_spec": {
+    "source_table": "databricks_architect_agent.agent_demo.architecture_knowledge_chunk",
+    "pipeline_type": "TRIGGERED",
+    "embedding_source_columns": [
+      {
+        "name": "content",
+        "embedding_model_endpoint_name": "databricks-gte-large-en"
+      }
+    ]
+  }
+}

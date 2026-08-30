@@ -1,0 +1,58 @@
+{
+  "datasets": [
+    {
+      "name": "topology_relationships",
+      "displayName": "Governed platform relationships",
+      "queryLines": [
+        "SELECT relationship.relationship_id, source.full_name AS source_asset, relationship.relationship_type, target.full_name AS target_asset, source.domain AS source_domain, target.domain AS target_domain, relationship.observed_at",
+        "FROM databricks_architect_agent.agent_demo.platform_relationship relationship",
+        "JOIN databricks_architect_agent.agent_demo.platform_asset source ON relationship.from_asset_id = source.asset_id",
+        "JOIN databricks_architect_agent.agent_demo.platform_asset target ON relationship.to_asset_id = target.asset_id",
+        "ORDER BY relationship.observed_at DESC"
+      ]
+    },
+    {
+      "name": "cost_signals",
+      "displayName": "Current compute cost signals",
+      "queryLines": [
+        "SELECT compute_name, compute_type, monthly_cost_usd, utilization_pct, recommendation",
+        "FROM databricks_architect_agent.agent_demo.cost_summary",
+        "ORDER BY monthly_cost_usd DESC"
+      ]
+    },
+    {
+      "name": "pipeline_slas",
+      "displayName": "Current pipeline freshness contracts",
+      "queryLines": [
+        "SELECT workload_name, workload_type, freshness_sla_minutes, failed_run_rate, status",
+        "FROM databricks_architect_agent.agent_demo.workload_summary",
+        "ORDER BY freshness_sla_minutes ASC"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "architecture_topology",
+      "displayName": "Architecture Topology",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": { "name": "title", "multilineTextboxSpec": { "lines": ["# Governed Architecture Topology", "Relationship flow, cost signals, and pipeline freshness from the Unity Catalog platform twin."] } },
+          "position": { "x": 0, "y": 0, "width": 6, "height": 2 }
+        },
+        {
+          "widget": { "name": "relationship_flow", "queries": [{ "name": "main_query", "query": { "datasetName": "topology_relationships", "fields": [{ "name": "source_asset", "expression": "source_asset" }, { "name": "relationship_type", "expression": "relationship_type" }, { "name": "target_asset", "expression": "target_asset" }, { "name": "source_domain", "expression": "source_domain" }, { "name": "target_domain", "expression": "target_domain" }], "disaggregated": true } }], "spec": { "version": 1, "widgetType": "table", "encodings": { "columns": [{ "fieldName": "source_asset" }, { "fieldName": "relationship_type" }, { "fieldName": "target_asset" }, { "fieldName": "source_domain" }, { "fieldName": "target_domain" }] }, "frame": { "showTitle": true, "title": "Governed relationship flow", "showDescription": true, "description": "Use this source-to-target topology when assessing architecture impact." } } },
+          "position": { "x": 0, "y": 2, "width": 6, "height": 5 }
+        },
+        {
+          "widget": { "name": "cost_comparison", "queries": [{ "name": "main_query", "query": { "datasetName": "cost_signals", "fields": [{ "name": "compute_name", "expression": "compute_name" }, { "name": "monthly_cost_usd", "expression": "SUM(monthly_cost_usd)" }, { "name": "compute_type", "expression": "compute_type" }], "disaggregated": true } }], "spec": { "version": 3, "widgetType": "bar", "encodings": { "x": { "fieldName": "compute_name", "scale": { "type": "categorical" } }, "y": { "fieldName": "monthly_cost_usd", "scale": { "type": "quantitative" } }, "color": { "fieldName": "compute_type", "scale": { "type": "categorical" } } }, "frame": { "showTitle": true, "title": "Monthly compute cost", "showDescription": true, "description": "Observed cost baseline for architecture decisions." } } },
+          "position": { "x": 0, "y": 7, "width": 3, "height": 5 }
+        },
+        {
+          "widget": { "name": "pipeline_sla", "queries": [{ "name": "main_query", "query": { "datasetName": "pipeline_slas", "fields": [{ "name": "workload_name", "expression": "workload_name" }, { "name": "freshness_sla_minutes", "expression": "AVG(freshness_sla_minutes)" }, { "name": "status", "expression": "status" }], "disaggregated": true } }], "spec": { "version": 3, "widgetType": "bar", "encodings": { "x": { "fieldName": "workload_name", "scale": { "type": "categorical" } }, "y": { "fieldName": "freshness_sla_minutes", "scale": { "type": "quantitative" } }, "color": { "fieldName": "status", "scale": { "type": "categorical" } } }, "frame": { "showTitle": true, "title": "Pipeline freshness SLA", "showDescription": true, "description": "Observed freshness contracts that define the current near-real-time baseline." } } },
+          "position": { "x": 3, "y": 7, "width": 3, "height": 5 }
+        }
+      ]
+    }
+  ]
+}

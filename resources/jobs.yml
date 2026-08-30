@@ -1,0 +1,235 @@
+resources:
+  jobs:
+    enterprise_architect_bootstrap:
+      name: ${bundle.target}-enterprise-architect-bootstrap
+      description: Creates and seeds the governed platform twin. It does not provision infrastructure or alter permissions.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: bootstrap_governed_twin
+          notebook_task:
+            notebook_path: ../src/notebooks/bootstrap.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_platform_refresh:
+      name: ${bundle.target}-enterprise-architect-platform-refresh
+      description: Read-only refresh of approved platform, workload, cost, and lineage evidence. No permission changes or provisioning.
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: 0 0 */6 * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: refresh_platform_twin
+          notebook_task:
+            notebook_path: ../src/notebooks/refresh_platform_twin.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_semantic_discovery:
+      name: ${bundle.target}-enterprise-architect-semantic-discovery
+      description: Discovers new retail POS tables and views, stages incomplete contracts as CANDIDATE, and never publishes them to Genie automatically.
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: 0 5 */6 * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: discover_semantic_contracts
+          notebook_task:
+            notebook_path: ../src/notebooks/discover_semantic_contracts.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              source_schema: retail_pos
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_genie_sync:
+      name: ${bundle.target}-enterprise-architect-genie-sync
+      description: Synchronizes only APPROVED, described, classified, owner-assigned, Genie-eligible data products to the Enterprise Architect Genie space.
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: 0 10 */6 * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: synchronize_approved_products
+          notebook_task:
+            notebook_path: ../src/notebooks/sync_genie_space.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              genie_space_id: 01f1a400577d1c71b8b1fd2d83cc2df5
+              warehouse_id: e3a0fc2c08db05bb
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_knowledge_stage:
+      name: ${bundle.target}-enterprise-architect-knowledge-stage
+      description: Stages approved Databricks documentation sources as CANDIDATE knowledge for human review.
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: 0 30 6 * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: stage_approved_knowledge
+          notebook_task:
+            notebook_path: ../src/notebooks/stage_knowledge.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_proposal_writer:
+      name: ${bundle.target}-enterprise-architect-proposal-writer
+      description: Writes a reviewable PENDING_APPROVAL architecture proposal and no executable infrastructure changes.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: persist_proposal
+          notebook_task:
+            notebook_path: ../src/notebooks/write_proposal.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              requirement_text: "We acquired a company. Onboard 200 TB, support near-real-time customer 360 analytics, add semantic search, and keep operational cost low."
+              proposal_title: "Acquired company customer 360 architecture"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_request_executor:
+      name: ${bundle.target}-solutions-architect-request-executor
+      description: Idempotently persists a request, evidence register, PENDING_APPROVAL proposal, generated diagram artifacts, and review package.
+      max_concurrent_runs: 1
+      parameters:
+        - name: request_text
+          default: We acquired a company. Design a new governed solution architecture for onboarding 200 TB of acquired-company data, near-real-time Customer 360 analytics, semantic search, and low operating cost.
+        - name: request_title
+          default: Acquired company Customer 360 architecture
+        - name: genie_conversation_id
+          default: ""
+        - name: option_graphs
+          default: "[]"
+      tasks:
+        - task_key: execute_governed_request
+          notebook_task:
+            notebook_path: ../src/notebooks/execute_architecture_request.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              request_text: "{{job.parameters.request_text}}"
+              request_title: "{{job.parameters.request_title}}"
+              genie_conversation_id: "{{job.parameters.genie_conversation_id}}"
+              option_graphs: "{{job.parameters.option_graphs}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_proposal_decision:
+      name: ${bundle.target}-solutions-architect-proposal-decision
+      description: Records an explicit APPROVED or REJECTED review decision. It never executes an approved proposal.
+      max_concurrent_runs: 1
+      parameters:
+        - name: proposal_id
+          default: proposal_b069f6d360918cca108235f4
+        - name: decision
+          default: APPROVED
+        - name: decision_reason
+          default: Review decision recorded; execution remains outside this workflow.
+      tasks:
+        - task_key: record_decision
+          notebook_task:
+            notebook_path: ../src/notebooks/decide_architecture_proposal.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              proposal_id: "{{job.parameters.proposal_id}}"
+              decision: "{{job.parameters.decision}}"
+              decision_reason: "{{job.parameters.decision_reason}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_review_package:
+      name: ${bundle.target}-solutions-architect-review-package
+      description: Creates a PDF review package embedding the governed SVG/PNG diagram and evidence register.
+      max_concurrent_runs: 1
+      parameters:
+        - name: proposal_id
+          default: proposal_b069f6d360918cca108235f4
+      tasks:
+        - task_key: generate_review_package
+          notebook_task:
+            notebook_path: ../src/notebooks/generate_review_package.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              proposal_id: "{{job.parameters.proposal_id}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_diagram_renderer:
+      name: ${bundle.target}-enterprise-architect-diagram-renderer
+      description: Validates an architecture graph and renders Mermaid, SVG, and PNG artifacts to the governed architecture_artifacts volume.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: render_review_artifacts
+          notebook_task:
+            notebook_path: ../src/notebooks/render_diagram.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              proposal_id: demo_customer_360
+              architecture_json: '{"layout":"architecture","nodes":[{"id":"landing","label":"Acquisition Landing","icon":"auto-loader"},{"id":"silver","label":"Customer Silver","icon":"delta-lake"},{"id":"gold","label":"Customer 360 Gold","icon":"data-intelligence-platform"},{"id":"search","label":"Semantic Search","icon":"ai-search"},{"id":"genie","label":"Genie Solutions Architect","icon":"genie-agents"},{"id":"dashboard","label":"Executive Dashboard","icon":"ai-bi-dashboards"}],"edges":[{"from":"landing","to":"silver"},{"from":"silver","to":"gold"},{"from":"gold","to":"search"},{"from":"gold","to":"genie"},{"from":"search","to":"genie"},{"from":"genie","to":"dashboard"}]}'
+              evidence_json: '{"requirement":{"source":"DOCS/example-customer-360-prompt.md","summary":"Onboard 200 TB from an acquired company, support near-real-time Customer 360 analytics, add semantic search, and keep operational cost low."},"organization_ontology":{"assets":["asset_acquisition_landing","asset_customer_silver","asset_customer_gold","asset_customer_dashboard","asset_customer_api","asset_vector_capability"],"lineage_relationships":["rel_001: customer silver FEEDS customer gold","rel_002: customer gold FEEDS Customer 360 Executive Dashboard","rel_003: customer gold SERVES customer-profile-api"]},"governance":{"policies":["policy_pii: customer PII remains inside the customer Unity Catalog boundary","policy_retention: acquired data remains in its approved region"]},"operations_and_cost":{"workloads":["workload_customer_refresh: customer-360-refresh, 15-minute schedule, 30-minute SLA","workload_dashboard: customer-360-dashboard-refresh, hourly schedule"],"cost_signals":["cost_warehouse: customer-bi-warehouse, observed low utilization","cost_idle_cluster: legacy-enrichment-cluster, observed low utilization"]},"reviewed_databricks_knowledge":{"knowledge_id":"knowledge_vector_search","canonical_url":"https://docs.databricks.com/aws/en/generative-ai/vector-search","review_status":"REVIEWED","limitation":"Validate cloud, region, and workspace entitlement before implementation."},"diagram_assets":{"icon_source":"/Volumes/databricks_architect_agent/agent_demo/architecture_icons/databricks-architecture-icons-all.zip","icons":["auto-loader","delta-lake","data-intelligence-platform","ai-search","genie-agents","ai-bi-dashboards"]}}'
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
+    enterprise_architect_infographic_renderer:
+      name: ${bundle.target}-solutions-architect-infographic-renderer
+      description: Generates presentation-ready Genie Solutions Architect SVG infographics in the governed architecture_artifacts volume.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: render_infographics
+          notebook_task:
+            notebook_path: ../src/notebooks/render_infographics.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
