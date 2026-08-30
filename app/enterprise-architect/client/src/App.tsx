@@ -9,6 +9,15 @@ const workspaceUrl = 'https://adb-1866518241053589.9.azuredatabricks.net';
 const genieUrl = `${workspaceUrl}/genie/rooms/01f1a400577d1c71b8b1fd2d83cc2df5`;
 const volumePath = '/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts';
 
+async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('The localhost preview does not run the Databricks App API. Open the deployed App to generate or review architecture packages.');
+  }
+  const payload = await response.json() as T & { error?: string };
+  if (!response.ok) throw new Error(payload.error ?? fallbackMessage);
+  return payload;
+}
+
 export default function App() {
   const [packages, setPackages] = useState<ReviewPackage[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -31,8 +40,7 @@ export default function App() {
 
   useEffect(() => {
     fetch(`/api/review-packages?view=${showArchived ? 'archived' : 'pending'}`).then(async (response) => {
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to load review packages.');
+      const payload = await readApiJson<{ rows?: ReviewPackage[] }>(response, 'Unable to load review packages.');
       setPackages(payload.rows ?? []);
     }).catch((error: Error) => setLoadError(error.message));
   }, [showArchived]);
@@ -80,19 +88,22 @@ export default function App() {
     setChatting(true); setProgressStage('grounding'); setStartedAt(Date.now()); setNow(Date.now()); setChatError(''); setAgentResponse(''); setPendingApproval(undefined); setGeneratedArtifact(undefined);
     try {
       const genieResponse = await fetch('/api/genie/respond', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: requestText, conversationId: genieConversationId || undefined }) });
-      const nativeGenie = await genieResponse.json() as { content?: string; conversationId?: string; error?: string };
-      if (!genieResponse.ok || !nativeGenie.content) throw new Error(nativeGenie.error ?? 'The deployed Genie space could not complete the request.');
+      const nativeGenie = await readApiJson<{ content?: string; conversationId?: string }>(genieResponse, 'The deployed Genie space could not complete the request.');
+      if (!nativeGenie.content) throw new Error('The deployed Genie space completed without a text response.');
       setAgentResponse(nativeGenie.content);
       setGenieConversationId(nativeGenie.conversationId ?? '');
-      const response = await fetch('/api/agents/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: `${requestText}\n\nNative deployed Genie response to preserve exactly:\n${nativeGenie.content}\n\nCreate only the governed review package for this response.`, threadId: threadId || undefined, agent: 'solutionsArchitect' }) });
+      setProgressStage('rendering');
+      const response = await fetch('/api/agents/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: `EXACT_NATIVE_TRANSCRIPT\nCreate only the governed review package for this exact Genie response. Do not write any user-facing prose.\n\nOriginal request:\n${requestText}\n\nGenie conversation ID: ${nativeGenie.conversationId ?? ''}\n\nExact Genie response:\n${nativeGenie.content}`, threadId: threadId || undefined, agent: 'solutionsArchitect' }) });
+      if (!response.headers.get('content-type')?.includes('text/event-stream')) {
+        throw new Error('The localhost preview does not run the Databricks App API. Open the deployed App to generate or review architecture packages.');
+      }
       if (!response.ok || !response.body) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? 'The Solutions Architect could not start the request.');
+        throw new Error('The Solutions Architect could not start the request.');
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let pending = '';
-      let completeResponse = nativeGenie.content;
+      const completeResponse = nativeGenie.content;
       let generatedProposalId = '';
       let toolResultMessage = '';
       while (true) {
@@ -194,7 +205,7 @@ export default function App() {
       <div className="lead-copy"><p className="eyebrow">ARCHITECTURE REVIEW</p><h2>Build from the platform you have.</h2><p>Use Genie for evidence-grounded questions. Use the controlled workflows below to persist a proposal and its review artifacts.</p></div>
       <Card><CardHeader><CardTitle>Current governed scope</CardTitle></CardHeader><CardContent><dl><dt>Catalog</dt><dd>databricks_architect_agent</dd><dt>Schema</dt><dd>agent_demo</dd><dt>Artifact volume</dt><dd className="path">{volumePath}</dd></dl></CardContent></Card>
     </section>
-    <section className="architect-chat"><div className="chat-intro"><div><p className="eyebrow">SOLUTIONS ARCHITECT CHAT</p><h2>Describe the outcome you need.</h2></div><p>The agent grounds the design with the scoped Genie Agent and reviewed knowledge, then creates governed review artifacts only after your approval.</p></div><textarea value={requestText} onChange={(event) => setRequestText(event.target.value)} aria-label="Architecture request" /><button onClick={submitArchitectureRequest} disabled={chatting || !!pendingApproval}>{chatting ? 'Working...' : 'Generate architecture'}</button>{chatError && <p className="load-error">{chatError}</p>}{showResponse && <section className="response-panel" aria-live="polite"><header><span>Genie SA Agent's Architecture Response</span><span className="response-state">{inProgress ? <>In progress <time dateTime={`PT${elapsedTime}`}>{elapsedTime}</time></> : <><span>Complete</span>{generatedArtifact && <button className="pdf-download" onClick={() => void downloadReviewPdf()} disabled={pdfInFlight}>{pdfInFlight ? 'Preparing PDF...' : 'Download PDF'}</button>}</>}</span></header>{inProgress && <div className="agent-progress" aria-label="Genie SA Agent progress"><span className={progressStage === 'grounding' ? 'active' : 'complete'}>1. Grounding with Genie</span><span className={progressStage === 'approval' ? 'active' : progressStage === 'rendering' ? 'complete' : ''}>2. Awaiting approval</span><span className={progressStage === 'rendering' ? 'active' : ''}>3. Rendering artifacts</span></div>}<div className="response-scroll">{visibleResponse && <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleResponse}</ReactMarkdown>}{generatedArtifact && <ResponseDiagrams proposalId={generatedArtifact.proposal_id} />}</div>{pendingApproval && <footer className="approval-decision"><p>Approve creation of the pending proposal and review artifacts?</p><div className="approval-buttons"><button onClick={() => decideToolApproval('approve')}>Approve artifacts</button><button className="reject" onClick={() => decideToolApproval('deny')}>Decline</button></div></footer>}</section>}</section>
+    <section className="architect-chat"><div className="chat-intro"><div><p className="eyebrow">SOLUTIONS ARCHITECT CHAT</p><h2>Describe the outcome you need.</h2></div><p>Genie analyzes the governed environment first. The App then formats its response, renders the governed diagrams, and creates a review package.</p></div><textarea value={requestText} onChange={(event) => setRequestText(event.target.value)} aria-label="Architecture request" /><button onClick={() => void submitArchitectureRequest()} disabled={chatting || !!pendingApproval}>{chatting ? 'Working...' : 'Generate architecture'}</button>{chatError && <p className="load-error">{chatError}</p>}{showResponse && <section className="response-panel" aria-live="polite"><header><span>Genie SA Agent's Architecture Response</span><span className="response-state">{inProgress ? <>In progress <time dateTime={`PT${elapsedTime}`}>{elapsedTime}</time></> : <><span>Complete</span>{generatedArtifact && <button className="pdf-download" onClick={() => void downloadReviewPdf()} disabled={pdfInFlight}>{pdfInFlight ? 'Preparing PDF...' : 'Download PDF'}</button>}</>}</span></header>{inProgress && <div className="agent-progress" aria-label="Genie SA Agent progress"><span className={progressStage === 'grounding' ? 'active' : 'complete'}>1. Genie is analyzing governed context</span><span className={progressStage === 'approval' ? 'active' : progressStage === 'rendering' ? 'complete' : ''}>2. Preparing review package</span><span className={progressStage === 'rendering' ? 'active' : ''}>3. Rendering governed diagrams</span></div>}<div className="response-scroll">{visibleResponse && <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleResponse}</ReactMarkdown>}{generatedArtifact && <ResponseDiagrams proposalId={generatedArtifact.proposal_id} />}</div>{pendingApproval && <footer className="approval-decision"><p>Approve creation of the pending proposal and review artifacts?</p><div className="approval-buttons"><button onClick={() => decideToolApproval('approve')}>Approve artifacts</button><button className="reject" onClick={() => decideToolApproval('deny')}>Decline</button></div></footer>}</section>}</section>
     <section className="capability-grid">
       <Capability icon={<Database />} title="Platform twin" detail="Unity Catalog inventory, registered lineage, policy, workload, cost, and manifest-only code evidence are recorded with observation status." />
       <Capability icon={<BookOpenCheck />} title="Reviewed knowledge" detail="Scheduled staging only creates CANDIDATE facts. A separate explicit review workflow promotes approved claims to REVIEWED." />

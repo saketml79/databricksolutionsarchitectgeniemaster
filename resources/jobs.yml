@@ -160,6 +160,8 @@ resources:
           default: ""
         - name: conversation_id
           default: ""
+        - name: message_id
+          default: ""
       tasks:
         - task_key: fetch_genie_response
           notebook_task:
@@ -168,6 +170,7 @@ resources:
               space_id: "{{job.parameters.space_id}}"
               message: "{{job.parameters.message}}"
               conversation_id: "{{job.parameters.conversation_id}}"
+              message_id: "{{job.parameters.message_id}}"
           environment_key: default
       environments:
         - environment_key: default
