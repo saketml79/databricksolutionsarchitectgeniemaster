@@ -63,16 +63,10 @@ createApp({
           response.status(400).json({ error: 'A Genie message and optional conversation ID are required.' });
           return;
         }
-        const accessToken = request.header('x-forwarded-access-token')?.trim();
-        if (!accessToken) {
-          response.status(401).json({ error: 'Your Databricks OAuth access token is unavailable. Refresh the App and try again.' });
-          return;
-        }
         try {
-          const userWorkspace = new WorkspaceClient({ host: workspaceHost, authType: 'pat', token: accessToken });
           const operation = conversationId
-            ? await userWorkspace.genie.createMessage({ space_id: genieSpaceId, conversation_id: conversationId, content: message.trim() })
-            : await userWorkspace.genie.startConversation({ space_id: genieSpaceId, content: message.trim() });
+            ? await executorWorkspace.genie.createMessage({ space_id: genieSpaceId, conversation_id: conversationId, content: message.trim() })
+            : await executorWorkspace.genie.startConversation({ space_id: genieSpaceId, content: message.trim() });
           const result = await operation.wait() as any;
           const genieMessage = result.message ?? result;
           const content = (genieMessage.attachments ?? []).map((attachment: any) => attachment.text?.content).filter((text: unknown): text is string => typeof text === 'string' && text.trim().length > 0).join('\n\n') || genieMessage.content;
