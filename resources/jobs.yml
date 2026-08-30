@@ -149,6 +149,31 @@ resources:
           spec:
             client: "1"
 
+    enterprise_architect_genie_response:
+      name: ${bundle.target}-enterprise-architect-genie-response
+      description: Retrieves the exact response from the deployed governed Genie space for the App review experience.
+      max_concurrent_runs: 3
+      parameters:
+        - name: space_id
+          default: ""
+        - name: message
+          default: ""
+        - name: conversation_id
+          default: ""
+      tasks:
+        - task_key: fetch_genie_response
+          notebook_task:
+            notebook_path: ../src/notebooks/fetch_genie_response.py
+            base_parameters:
+              space_id: "{{job.parameters.space_id}}"
+              message: "{{job.parameters.message}}"
+              conversation_id: "{{job.parameters.conversation_id}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+
     enterprise_architect_proposal_decision:
       name: ${bundle.target}-solutions-architect-proposal-decision
       description: Records an explicit APPROVED or REJECTED review decision. It never executes an approved proposal.

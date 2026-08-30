@@ -10,6 +10,7 @@ process.env.DATABRICKS_WAREHOUSE_ID = warehouseId;
 const model = await DatabricksAdapter.fromModelServing('databricks-claude-sonnet-4-5', { maxSteps: 8, maxTokens: 6400 });
 const workspaceHost = 'https://adb-1866518241053589.9.azuredatabricks.net';
 const genieSpaceId = '01f1a400577d1c71b8b1fd2d83cc2df5';
+const genieResponseJobId = 73978804815672;
 const reviewPackageJobId = 520045804977801;
 const executorWorkspace = new WorkspaceClient({ host: workspaceHost });
 
@@ -64,14 +65,13 @@ createApp({
           return;
         }
         try {
-          const operation = conversationId
-            ? await executorWorkspace.genie.createMessage({ space_id: genieSpaceId, conversation_id: conversationId, content: message.trim() })
-            : await executorWorkspace.genie.startConversation({ space_id: genieSpaceId, content: message.trim() });
-          const result = await operation.wait() as any;
-          const genieMessage = result.message ?? result;
-          const content = (genieMessage.attachments ?? []).map((attachment: any) => attachment.text?.content).filter((text: unknown): text is string => typeof text === 'string' && text.trim().length > 0).join('\n\n') || genieMessage.content;
-          if (!content || genieMessage.error) throw new Error(genieMessage.error?.message ?? 'The deployed Genie space did not return a response.');
-          response.json({ content, conversationId: result.conversation_id ?? genieMessage.conversation_id, messageId: result.message_id ?? genieMessage.message_id, spaceId: genieSpaceId });
+          const run = await executorWorkspace.jobs.runNow({ job_id: genieResponseJobId, job_parameters: { space_id: genieSpaceId, message: message.trim(), conversation_id: conversationId ?? '' } });
+          const completed = await run.wait();
+          if (completed.state?.result_state !== 'SUCCESS' || !completed.tasks?.[0]?.run_id) throw new Error(completed.state?.state_message ?? 'The deployed Genie response job did not succeed.');
+          const output = await executorWorkspace.jobs.getRunOutput({ run_id: completed.tasks[0].run_id });
+          const nativeResponse = JSON.parse(output.notebook_output?.result ?? '{}') as { content?: string; conversation_id?: string; message_id?: string; space_id?: string };
+          if (!nativeResponse.content || nativeResponse.space_id !== genieSpaceId) throw new Error('The deployed Genie response job returned an invalid result.');
+          response.json({ content: nativeResponse.content, conversationId: nativeResponse.conversation_id, messageId: nativeResponse.message_id, spaceId: nativeResponse.space_id });
         } catch (error) {
           response.status(502).json({ error: error instanceof Error ? error.message : 'The deployed Genie space could not complete the request.' });
         }

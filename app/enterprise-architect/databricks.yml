@@ -35,6 +35,10 @@ resources:
           job:
             id: 527763870636434
             permission: CAN_MANAGE_RUN
+        - name: architect-genie-response
+          job:
+            id: 73978804815672
+            permission: CAN_MANAGE_RUN
 
       # Start the app automatically on deploy.
       lifecycle:
