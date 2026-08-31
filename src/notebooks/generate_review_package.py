@@ -43,60 +43,80 @@ except ImportError:
     from svglib.svglib import svg2rlg
     from reportlab.graphics import renderPDF
 try:
-    drawing = svg2rlg(svg_path)
-    if drawing is None:
-        raise ValueError("stored SVG could not be converted to a PDF drawing")
     page_width, page_height = A4
     pdf_canvas = canvas.Canvas(pdf_path, pagesize=A4)
     pdf_canvas.setTitle(record["title"])
-    pdf_canvas.setFont("Helvetica-Bold", 18)
-    pdf_canvas.setFillColor("#173b3d")
-    pdf_canvas.drawString(42, page_height - 48, "Databricks Solutions Architect")
-    pdf_canvas.setFont("Helvetica", 11)
-    pdf_canvas.drawString(42, page_height - 66, record["title"][:110])
-    pdf_canvas.setFillColor("#126b62")
-    pdf_canvas.setFont("Helvetica-Bold", 10)
-    pdf_canvas.drawString(42, page_height - 84, f"STATUS: {record['status']} | REVIEW PACKAGE")
-    scale = min((page_width - 84) / drawing.width, 260 / drawing.height)
-    pdf_canvas.saveState()
-    pdf_canvas.translate(42, page_height - 360)
-    pdf_canvas.scale(scale, scale)
-    renderPDF.draw(drawing, pdf_canvas, 0, 0)
-    pdf_canvas.restoreState()
-    pdf_canvas.setFillColor("#173b3d")
+    ink, teal, lime, muted = "#173b3d", "#126b62", "#dbe976", "#607b7b"
+
+    def draw_header(section_title):
+        pdf_canvas.setFillColor(ink)
+        pdf_canvas.setFont("Helvetica-Bold", 20)
+        pdf_canvas.drawString(42, page_height - 50, "Databricks Solutions Architect")
+        pdf_canvas.setStrokeColor(teal)
+        pdf_canvas.setLineWidth(1)
+        pdf_canvas.line(42, page_height - 61, page_width - 42, page_height - 61)
+        pdf_canvas.setFillColor(teal)
+        pdf_canvas.setFont("Helvetica-Bold", 11)
+        pdf_canvas.drawString(42, page_height - 82, section_title)
+
+    def draw_footer():
+        pdf_canvas.setStrokeColor("#c9d7d2")
+        pdf_canvas.line(42, 42, page_width - 42, 42)
+        pdf_canvas.setFillColor(muted)
+        pdf_canvas.setFont("Helvetica", 8)
+        pdf_canvas.drawString(42, 28, "Governed review package. No infrastructure action was performed.")
+        pdf_canvas.drawRightString(page_width - 42, 28, f"Page {pdf_canvas.getPageNumber()}")
+
+    def draw_wrapped(text_value, x, y, width, font_size=10, leading=14):
+        pdf_canvas.setFont("Helvetica", font_size)
+        text = pdf_canvas.beginText(x, y)
+        text.setLeading(leading)
+        for paragraph in text_value.splitlines() or [text_value]:
+            for line in textwrap.wrap(paragraph, width=width) or [""]:
+                text.textLine(line)
+        pdf_canvas.drawText(text)
+        return text.getY()
+
+    draw_header("Review summary")
+    pdf_canvas.setFillColor(ink)
+    pdf_canvas.setFont("Helvetica-Bold", 14)
+    pdf_canvas.drawString(42, page_height - 112, record["title"][:115])
+    pdf_canvas.setFillColor(lime)
+    pdf_canvas.rect(42, page_height - 145, 150, 20, fill=1, stroke=0)
+    pdf_canvas.setFillColor(ink)
+    pdf_canvas.setFont("Helvetica-Bold", 9)
+    pdf_canvas.drawString(49, page_height - 138, f"STATUS: {record['status']}")
+    pdf_canvas.setFillColor(teal)
     pdf_canvas.setFont("Helvetica-Bold", 11)
-    pdf_canvas.drawString(42, page_height - 390, "Recommendation")
-    pdf_canvas.setFont("Helvetica", 9)
-    text = pdf_canvas.beginText(42, page_height - 406)
-    text.setLeading(12)
-    for word in record["recommendation"].split():
-        line = text.getX() and word
-        if text.getX() > page_width - 105:
-            text.textLine()
-        text.textOut(word + " ")
-    pdf_canvas.drawText(text)
-    for option_index, option_svg_path in enumerate(option_svg_paths[1:], start=2):
+    pdf_canvas.drawString(42, page_height - 178, "Recommendation")
+    pdf_canvas.setFillColor(ink)
+    draw_wrapped(record["recommendation"], 42, page_height - 196, 102)
+    pdf_canvas.setFillColor(teal)
+    pdf_canvas.setFont("Helvetica-Bold", 11)
+    pdf_canvas.drawString(42, page_height - 300, "Review contents")
+    pdf_canvas.setFillColor(ink)
+    draw_wrapped("Three option-specific architecture diagrams, the complete Genie response, and the governed evidence register are included in this review package.", 42, page_height - 318, 102)
+    draw_footer()
+
+    for option_index, option_svg_path in enumerate(option_svg_paths, start=1):
         option_drawing = svg2rlg(option_svg_path)
         if option_drawing is None:
             raise ValueError(f"stored option {option_index} SVG could not be converted to a PDF drawing")
         pdf_canvas.showPage()
-        pdf_canvas.setFont("Helvetica-Bold", 14)
-        pdf_canvas.setFillColor("#173b3d")
-        pdf_canvas.drawString(42, page_height - 48, f"Architecture option {option_index}")
-        option_scale = min((page_width - 84) / option_drawing.width, (page_height - 120) / option_drawing.height)
+        draw_header(f"Architecture option {option_index}")
+        option_scale = min((page_width - 84) / option_drawing.width, (page_height - 170) / option_drawing.height)
         pdf_canvas.saveState()
-        pdf_canvas.translate(42, page_height - 90 - option_drawing.height * option_scale)
+        pdf_canvas.translate(42, page_height - 120 - option_drawing.height * option_scale)
         pdf_canvas.scale(option_scale, option_scale)
         renderPDF.draw(option_drawing, pdf_canvas, 0, 0)
         pdf_canvas.restoreState()
+        draw_footer()
     response_rows = spark.sql(f"""SELECT content FROM `{catalog}`.`{schema}`.architecture_conversation
     WHERE request_id = '{escaped_proposal_id}' AND content_type = 'FULL_ARCHITECTURE_RESPONSE'
     ORDER BY created_at DESC LIMIT 1""").collect()
     if response_rows:
         pdf_canvas.showPage()
-        pdf_canvas.setFont("Helvetica-Bold", 14)
-        pdf_canvas.setFillColor("#173b3d")
-        pdf_canvas.drawString(42, page_height - 48, "Native Genie response")
+        draw_header("Complete Genie response")
         text = pdf_canvas.beginText(42, page_height - 70)
         text.setFont("Helvetica", 8)
         text.setLeading(11)
@@ -104,15 +124,15 @@ try:
             for wrapped_line in textwrap.wrap(source_line, width=120) or [""]:
                 if text.getY() < 50:
                     pdf_canvas.drawText(text)
+                    draw_footer()
                     pdf_canvas.showPage()
-                    text = pdf_canvas.beginText(42, page_height - 48)
+                    draw_header("Complete Genie response")
+                    text = pdf_canvas.beginText(42, page_height - 70)
                     text.setFont("Helvetica", 8)
                     text.setLeading(11)
                 text.textLine(wrapped_line)
         pdf_canvas.drawText(text)
-    pdf_canvas.setFont("Helvetica", 8)
-    pdf_canvas.setFillColor("#607b7b")
-    pdf_canvas.drawString(42, 34, "Evidence manifest, migration sequence, and draft IaC are stored with this package. No infrastructure action was performed.")
+    draw_footer()
     pdf_canvas.save()
 except Exception as error:
     raise RuntimeError(f"PDF generation failed; review HTML was retained at {root}.review.html: {str(error)[:500]}")

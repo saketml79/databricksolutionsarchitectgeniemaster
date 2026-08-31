@@ -36,6 +36,12 @@ VALUES (source.request_id, source.request_fingerprint, source.request_text, sour
 
 existing = spark.sql(f"SELECT proposal_id FROM `{catalog}`.`{schema}`.architecture_proposal WHERE proposal_id = '{proposal_id}'").collect()
 if existing:
+    option_states = spark.sql(f"""SELECT status FROM `{catalog}`.`{schema}`.architecture_option_decision
+    WHERE proposal_id = '{proposal_id}'""").collect()
+    if len(option_states) == 3 and all(row.status == "PENDING_APPROVAL" for row in option_states):
+        spark.sql(f"""UPDATE `{catalog}`.`{schema}`.architecture_proposal
+        SET status = 'PENDING_APPROVAL', reviewed_at = NULL, reviewed_by = NULL
+        WHERE proposal_id = '{proposal_id}'""")
     spark.sql(f"UPDATE `{catalog}`.`{schema}`.architecture_request SET status = 'PENDING_APPROVAL', active_proposal_id = '{proposal_id}', updated_at = current_timestamp() WHERE request_id = '{request_id}'")
     dbutils.notebook.exit(json.dumps({"request_id": request_id, "proposal_id": proposal_id, "status": "PENDING_APPROVAL", "idempotent_reuse": True}))
 

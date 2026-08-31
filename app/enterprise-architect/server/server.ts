@@ -203,6 +203,10 @@ createApp({
       app.post('/api/proposals/:proposalId/decision', async (request, response) => {
         const proposalId = request.params.proposalId;
         const { decision, reason } = request.body ?? {};
+        if (/^proposal_[a-f0-9]{24}_v2$/.test(proposalId)) {
+          response.status(400).json({ error: 'Option-reviewed proposals require an approve or reject decision for a specific architecture option.' });
+          return;
+        }
         if (!['APPROVED', 'REJECTED'].includes(decision) || typeof reason !== 'string' || !reason.trim()) {
           response.status(400).json({ error: 'An APPROVED or REJECTED decision and a reason are required.' });
           return;
