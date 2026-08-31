@@ -7,11 +7,13 @@ dbutils.widgets.text("schema", "agent_demo")
 dbutils.widgets.text("request_text", "")
 dbutils.widgets.text("request_title", "")
 dbutils.widgets.text("genie_conversation_id", "")
+dbutils.widgets.text("request_nonce", "")
 dbutils.widgets.text("option_graphs", "[]")
 catalog, schema = dbutils.widgets.get("catalog"), dbutils.widgets.get("schema")
 request_text = dbutils.widgets.get("request_text").strip()
 request_title = dbutils.widgets.get("request_title").strip()
 conversation_id = dbutils.widgets.get("genie_conversation_id").strip()
+request_nonce = dbutils.widgets.get("request_nonce").strip()
 option_graphs = json.loads(dbutils.widgets.get("option_graphs"))
 if not request_text or not request_title:
     raise ValueError("request_text and request_title are required")
@@ -22,7 +24,10 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.architecture_opt
     decided_by STRING, decided_at TIMESTAMP
 ) USING DELTA""")
 
-fingerprint = hashlib.sha256(" ".join(request_text.lower().split()).encode()).hexdigest()
+fingerprint_input = " ".join(request_text.lower().split())
+if request_nonce:
+    fingerprint_input = f"{fingerprint_input}|{request_nonce}"
+fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()
 request_id = f"request_{fingerprint[:24]}"
 proposal_id = f"proposal_{fingerprint[:24]}_v2"
 escaped_request = request_text.replace("'", "''")

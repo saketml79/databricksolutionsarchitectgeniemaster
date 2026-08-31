@@ -1,7 +1,7 @@
 import { createApp, server } from '@databricks/appkit';
 import { agents, createAgent, DatabricksAdapter, mcpServer, tool } from '@databricks/appkit/beta';
 import { WorkspaceClient } from '@databricks/sdk-experimental';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 import { z } from 'zod';
 
@@ -43,10 +43,11 @@ createApp({
               schema: z.object({ request_text: z.string().min(1), request_title: z.string().min(1), genie_conversation_id: z.string().optional(), option_graphs: z.array(z.object({ option_id: z.enum(['option_1', 'option_2', 'option_3']), title: z.string().min(1), nodes: z.array(z.object({ id: z.string().regex(/^[A-Za-z0-9_]{1,64}$/), label: z.string().min(1), icon: z.string().regex(/^[a-z0-9-]+$/) })).min(4).max(10), edges: z.array(z.object({ from: z.string(), to: z.string() })).min(3) })).length(3) }),
               annotations: { effect: 'write', requiresUserContext: true },
               execute: async (args) => {
-                const run = await executorWorkspace.jobs.runNow({ job_id: 527763870636434, job_parameters: { ...args, option_graphs: JSON.stringify(args.option_graphs) } });
+                const requestNonce = randomUUID();
+                const run = await executorWorkspace.jobs.runNow({ job_id: 527763870636434, job_parameters: { ...args, request_nonce: requestNonce, option_graphs: JSON.stringify(args.option_graphs) } });
                 const completed = await run.wait();
                 if (completed.state?.result_state !== 'SUCCESS') return { status: 'FAILED', job_run_id: run.run_id, message: completed.state?.state_message ?? 'Request executor did not succeed.' };
-                const fingerprint = createHash('sha256').update(args.request_text.trim().toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 24);
+                const fingerprint = createHash('sha256').update(`${args.request_text.trim().toLowerCase().replace(/\s+/g, ' ')}|${requestNonce}`).digest('hex').slice(0, 24);
                 const proposalId = `proposal_${fingerprint}_v2`;
                 const artifactRoot = `/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts/${proposalId}`;
                 return { status: 'PENDING_APPROVAL', proposal_id: proposalId, job_run_id: run.run_id, option_artifacts: args.option_graphs.map((graph) => ({ option_id: graph.option_id, title: graph.title, svg_path: `${artifactRoot}_${graph.option_id}.svg` })), evidence_manifest_path: `${artifactRoot}.references.json` };

@@ -130,6 +130,8 @@ resources:
           default: Acquired company Customer 360 architecture
         - name: genie_conversation_id
           default: ""
+        - name: request_nonce
+          default: ""
         - name: option_graphs
           default: "[]"
       tasks:
@@ -142,6 +144,7 @@ resources:
               request_text: "{{job.parameters.request_text}}"
               request_title: "{{job.parameters.request_title}}"
               genie_conversation_id: "{{job.parameters.genie_conversation_id}}"
+              request_nonce: "{{job.parameters.request_nonce}}"
               option_graphs: "{{job.parameters.option_graphs}}"
           environment_key: default
       environments:
