@@ -40,10 +40,24 @@ export default function App() {
   const [pdfInFlight, setPdfInFlight] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/review-packages?view=${showArchived ? 'archived' : 'pending'}`).then(async (response) => {
-      const payload = await readApiJson<{ rows?: ReviewPackage[] }>(response, 'Unable to load review packages.');
-      setPackages(payload.rows ?? []);
-    }).catch((error: Error) => setLoadError(error.message));
+    let cancelled = false;
+    const loadPackages = () => {
+      void fetch(`/api/review-packages?view=${showArchived ? 'archived' : 'pending'}`).then(async (response) => {
+        const payload = await readApiJson<{ rows?: ReviewPackage[] }>(response, 'Unable to load review packages.');
+        if (!cancelled) {
+          setPackages(payload.rows ?? []);
+          setLoadError('');
+        }
+      }).catch((error: Error) => {
+        if (!cancelled) setLoadError(error.message);
+      });
+    };
+    loadPackages();
+    const refresh = window.setInterval(loadPackages, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refresh);
+    };
   }, [showArchived]);
 
   useEffect(() => {
@@ -197,6 +211,7 @@ export default function App() {
   const inProgress = progressStage !== 'complete';
   const elapsedTime = startedAt ? formatElapsedTime(startedAt, now) : '00:00';
   const selectedReviewPackage = packages.find((reviewPackage) => reviewPackage.proposal_id === selectedProposalId);
+  const reviewActionsDisabled = chatting || !!pendingApproval;
 
   return <main className="architect-shell">
     <header className="masthead">
@@ -219,7 +234,7 @@ export default function App() {
       <Capability icon={<ShieldCheck />} title="Proposal control" detail="The proposal writer records requirements, evidence, options, migration, rollback, and draft IaC only as PENDING_APPROVAL." />
       <Capability icon={<FileImage />} title="Diagram artifacts" detail="The renderer validates architecture JSON and writes Mermaid, SVG, and PNG review artifacts into the governed volume." />
     </section>
-    <section className="review-packages"><div className="review-heading"><div><p className="eyebrow">REVIEW PACKAGES</p><h2>{showArchived ? 'Archived proposals.' : 'Proposals waiting for a decision.'}</h2></div><span>{packages.length} available</span></div><button className="archive-toggle" onClick={() => setShowArchived((current) => !current)}>{showArchived ? 'Back to pending proposals' : 'View archived proposals'}</button>{loadError || decisionError ? <p className="load-error">{loadError || decisionError}</p> : <><table className="proposal-table"><thead><tr><th>Proposal</th><th>Generated</th><th>Status</th><th aria-label="Actions" /></tr></thead><tbody>{packages.map((reviewPackage) => <tr key={reviewPackage.proposal_id}><td><strong>{reviewPackage.title}</strong><span>{reviewPackage.proposal_id}</span></td><td>{reviewPackage.created_at ? new Date(reviewPackage.created_at).toLocaleString() : 'Unknown'}</td><td><span className="status-pill">{reviewPackage.status}</span></td><td><button className="load-proposal" onClick={() => setSelectedProposalId((current) => current === reviewPackage.proposal_id ? '' : reviewPackage.proposal_id)}>{selectedProposalId === reviewPackage.proposal_id ? 'Hide' : 'Load'}</button></td></tr>)}</tbody></table>{selectedReviewPackage && <article className="package-row"><div><strong>{selectedReviewPackage.title}</strong><p>{selectedReviewPackage.proposal_id}</p></div><div><span className="status-pill">{selectedReviewPackage.status}</span><p>{selectedReviewPackage.package_status ?? 'ARTIFACTS_PENDING'}</p></div><div className="artifact-links">{selectedReviewPackage.pdf_path && <a href={`/api/artifacts/${encodeURIComponent(selectedReviewPackage.proposal_id)}/pdf`} target="_blank" rel="noreferrer">Open PDF</a>}{selectedReviewPackage.status === 'PENDING_APPROVAL' && !selectedReviewPackage.svg_path?.includes('_option_1.svg') && <div className="decision-controls"><button disabled={decisionInFlight === selectedReviewPackage.proposal_id} onClick={() => void recordDecision(selectedReviewPackage, 'APPROVED')}>Approve</button><button className="reject" disabled={decisionInFlight === selectedReviewPackage.proposal_id} onClick={() => void recordDecision(selectedReviewPackage, 'REJECTED')}>Reject</button></div>}</div>{selectedReviewPackage.svg_path && (selectedReviewPackage.svg_path.includes('_option_1.svg') ? <OptionDiagrams proposalId={selectedReviewPackage.proposal_id} selectedOptionId={selectedReviewPackage.selected_option_id} evidenceRefreshToken={evidenceRefreshToken} onDecision={selectedReviewPackage.status === 'PENDING_APPROVAL' ? (optionId, decision) => recordOptionDecision(selectedReviewPackage, optionId, decision) : undefined} decisionInFlight={decisionInFlight} /> : <img className="package-preview" src={`/api/artifacts/${encodeURIComponent(selectedReviewPackage.proposal_id)}/svg`} alt={`${selectedReviewPackage.title} architecture diagram`} />)}</article>}</>}</section>
+    <section className="review-packages"><div className="review-heading"><div><p className="eyebrow">REVIEW PACKAGES</p><h2>{showArchived ? 'Archived proposals.' : 'Proposals waiting for a decision.'}</h2></div><span>{packages.length} available</span></div><button className="archive-toggle" onClick={() => setShowArchived((current) => !current)} disabled={reviewActionsDisabled}>{showArchived ? 'Back to pending proposals' : 'View archived proposals'}</button>{loadError || decisionError ? <p className="load-error">{loadError || decisionError}</p> : <><table className="proposal-table"><thead><tr><th>Proposal</th><th>Generated</th><th>Status</th><th aria-label="Actions" /></tr></thead><tbody>{packages.map((reviewPackage) => <tr key={reviewPackage.proposal_id}><td><strong>{reviewPackage.title}</strong><span>{reviewPackage.proposal_id}</span></td><td>{reviewPackage.created_at ? new Date(reviewPackage.created_at).toLocaleString() : 'Unknown'}</td><td><span className="status-pill">{reviewPackage.status}</span></td><td><button className="load-proposal" disabled={reviewActionsDisabled} onClick={() => setSelectedProposalId((current) => current === reviewPackage.proposal_id ? '' : reviewPackage.proposal_id)}>{selectedProposalId === reviewPackage.proposal_id ? 'Hide' : 'Load'}</button></td></tr>)}</tbody></table>{selectedReviewPackage && <article className="package-row"><div><strong>{selectedReviewPackage.title}</strong><p>{selectedReviewPackage.proposal_id}</p><p>{selectedReviewPackage.created_at ? `Generated ${new Date(selectedReviewPackage.created_at).toLocaleString()}` : 'Generated timestamp unavailable'}</p></div><div><span className="status-pill">{selectedReviewPackage.status}</span><p>{selectedReviewPackage.package_status ?? 'ARTIFACTS_PENDING'}</p></div><div className="artifact-links">{selectedReviewPackage.pdf_path && <a href={`/api/artifacts/${encodeURIComponent(selectedReviewPackage.proposal_id)}/pdf`} target="_blank" rel="noreferrer">Open PDF</a>}{selectedReviewPackage.status === 'PENDING_APPROVAL' && !selectedReviewPackage.svg_path?.includes('_option_1.svg') && <div className="decision-controls"><button disabled={reviewActionsDisabled || decisionInFlight === selectedReviewPackage.proposal_id} onClick={() => void recordDecision(selectedReviewPackage, 'APPROVED')}>Approve</button><button className="reject" disabled={reviewActionsDisabled || decisionInFlight === selectedReviewPackage.proposal_id} onClick={() => void recordDecision(selectedReviewPackage, 'REJECTED')}>Reject</button></div>}</div>{selectedReviewPackage.svg_path && (selectedReviewPackage.svg_path.includes('_option_1.svg') ? <OptionDiagrams proposalId={selectedReviewPackage.proposal_id} selectedOptionId={selectedReviewPackage.selected_option_id} evidenceRefreshToken={evidenceRefreshToken} onDecision={selectedReviewPackage.status === 'PENDING_APPROVAL' && !reviewActionsDisabled ? (optionId, decision) => recordOptionDecision(selectedReviewPackage, optionId, decision) : undefined} decisionInFlight={decisionInFlight} /> : <img className="package-preview" src={`/api/artifacts/${encodeURIComponent(selectedReviewPackage.proposal_id)}/svg`} alt={`${selectedReviewPackage.title} architecture diagram`} />)}</article>}</>}</section>
     <section className="workflow-band"><div><p className="eyebrow">OPERATING MODEL</p><h2>Ask. Review. Propose.</h2></div><ol><li>Ask current-state and impact questions in Genie.</li><li>Run the proposal writer for a reviewed requirement.</li><li>Run the diagram renderer for the proposal graph.</li><li>Review artifacts in the governed volume before any execution.</li></ol></section>
   </main>;
 }
