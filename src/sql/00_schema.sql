@@ -128,6 +128,10 @@ CREATE TABLE IF NOT EXISTS `${catalog}`.`${schema}`.architecture_option_decision
   decided_by STRING, decided_at TIMESTAMP
 ) USING DELTA;
 -- STATEMENT
+CREATE TABLE IF NOT EXISTS `${catalog}`.`${schema}`.architecture_decision_lock (
+  proposal_id STRING, lock_holder STRING, expires_at TIMESTAMP
+) USING DELTA;
+-- STATEMENT
 CREATE TABLE IF NOT EXISTS `${catalog}`.`${schema}`.architecture_review_package (
   package_id STRING, request_id STRING, proposal_id STRING, package_status STRING, svg_path STRING,
   png_path STRING, pdf_path STRING, evidence_manifest_path STRING, created_at TIMESTAMP, created_by STRING

@@ -13,6 +13,7 @@ This is the operational decision record for the Databricks Solutions Architect G
 ## Proposal And Diagram Contract
 
 - New proposals use the `_v2` identifier suffix to avoid reuse of historical fixed-template artifacts.
+- Each explicit App Generate action supplies a unique request nonce, creating a distinct pending proposal even when its text matches an earlier reviewed request. Direct executor runs without a nonce remain idempotent.
 - `generate_review_package` requires exactly three graphs: `option_1`, `option_2`, and `option_3`.
 - The agent must call `generate_review_package` before writing its user-facing analysis. This reserves model output for complete tool-call JSON and prevents a long narrative from truncating the option-graph payload.
 - Each graph must have 4-6 nodes, directed edges, node labels, and approved Databricks icon names.

@@ -53,7 +53,7 @@ databricks bundle run enterprise_architect_review_package -t dev --profile saket
 databricks fs ls dbfs:/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts --profile saket_dbx_dev
 ```
 
-Expected result: one fingerprinted request, one idempotent `PENDING_APPROVAL` proposal, evidence records, and `.mmd`, `.svg`, `.png`, `.references.json`, `.review.html`, and `.pdf` artifacts. The SVG should include requested icons from the governed `architecture_icons` Volume. A repeated identical request must return the same proposal ID rather than create a duplicate.
+Expected result: one fingerprinted request, one `PENDING_APPROVAL` proposal, evidence records, and `.mmd`, `.svg`, `.png`, `.references.json`, `.review.html`, and `.pdf` artifacts. The SVG should include requested icons from the governed `architecture_icons` Volume. Direct workflow runs without a `request_nonce` are idempotent. Each explicit App Generate action includes a unique request nonce and creates a distinct reviewable proposal.
 
 Open the Databricks Solutions Architect App to view persisted review packages and record an explicit approval or rejection with a reason. The App records the decision but never executes the design.
 

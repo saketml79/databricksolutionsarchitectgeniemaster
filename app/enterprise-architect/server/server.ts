@@ -188,10 +188,12 @@ createApp({
             ORDER BY used_at ASC, evidence_type ASC, evidence_ref ASC
             `),
             queryAsRequestingUser(request, `
-            SELECT content
-            FROM databricks_architect_agent.agent_demo.architecture_conversation
-            WHERE request_id = '${proposalId}' AND content_type = 'FULL_ARCHITECTURE_RESPONSE'
-            ORDER BY created_at DESC
+            SELECT conversation.content
+            FROM databricks_architect_agent.agent_demo.architecture_conversation AS conversation
+            INNER JOIN databricks_architect_agent.agent_demo.architecture_proposal AS proposal
+              ON conversation.request_id = proposal.requirement_id
+            WHERE proposal.proposal_id = '${proposalId}' AND conversation.content_type = 'FULL_ARCHITECTURE_RESPONSE'
+            ORDER BY conversation.created_at DESC
             LIMIT 1
             `),
           ]);
@@ -237,19 +239,32 @@ createApp({
           return;
         }
         const escape = (value: string) => value.replace(/'/g, "''");
+        const lockHolder = randomUUID();
         try {
-          const option = await queryAsRequestingUser(request, `SELECT status FROM databricks_architect_agent.agent_demo.architecture_option_decision WHERE proposal_id = '${escape(proposalId)}' AND option_id = '${optionId}'`);
-          if (option.length !== 1 || option[0].status !== 'PENDING_APPROVAL') throw new Error('This option is no longer awaiting a decision.');
-          if (decision === 'APPROVED') {
-            await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_option_decision SET status = CASE WHEN option_id = '${optionId}' THEN 'APPROVED' ELSE 'REJECTED_NOT_SELECTED' END, decision_reason = CASE WHEN option_id = '${optionId}' THEN '${escape(reason.trim())}' ELSE 'A different architecture option was approved.' END, decided_by = current_user(), decided_at = current_timestamp() WHERE proposal_id = '${escape(proposalId)}'`);
-            await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_proposal SET status = 'APPROVED', reviewed_at = current_timestamp(), reviewed_by = current_user() WHERE proposal_id = '${escape(proposalId)}'`);
-            await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_review_package SET svg_path = '/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts/${escape(proposalId)}_${optionId}.svg', png_path = '/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts/${escape(proposalId)}_${optionId}.png' WHERE proposal_id = '${escape(proposalId)}'`);
-          } else {
-            await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_option_decision SET status = 'REJECTED', decision_reason = '${escape(reason.trim())}', decided_by = current_user(), decided_at = current_timestamp() WHERE proposal_id = '${escape(proposalId)}' AND option_id = '${optionId}'`);
-            const pending = await queryAsRequestingUser(request, `SELECT count(*) AS pending_count FROM databricks_architect_agent.agent_demo.architecture_option_decision WHERE proposal_id = '${escape(proposalId)}' AND status = 'PENDING_APPROVAL'`);
-            if (Number(pending[0]?.pending_count) === 0) await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_proposal SET status = 'REJECTED', reviewed_at = current_timestamp(), reviewed_by = current_user() WHERE proposal_id = '${escape(proposalId)}'`);
+          await queryAsRequestingUser(request, `CREATE TABLE IF NOT EXISTS databricks_architect_agent.agent_demo.architecture_decision_lock (proposal_id STRING, lock_holder STRING, expires_at TIMESTAMP) USING DELTA`);
+          await queryAsRequestingUser(request, `MERGE INTO databricks_architect_agent.agent_demo.architecture_decision_lock AS target USING (SELECT '${escape(proposalId)}' AS proposal_id, '${lockHolder}' AS lock_holder, current_timestamp() + INTERVAL 5 MINUTES AS expires_at) AS source ON target.proposal_id = source.proposal_id WHEN MATCHED AND target.expires_at < current_timestamp() THEN UPDATE SET lock_holder = source.lock_holder, expires_at = source.expires_at WHEN NOT MATCHED THEN INSERT (proposal_id, lock_holder, expires_at) VALUES (source.proposal_id, source.lock_holder, source.expires_at)`);
+          const lock = await queryAsRequestingUser(request, `SELECT lock_holder FROM databricks_architect_agent.agent_demo.architecture_decision_lock WHERE proposal_id = '${escape(proposalId)}'`);
+          if (lock.length !== 1 || lock[0].lock_holder !== lockHolder) throw new Error('Another review decision is being recorded for this proposal. Refresh and try again.');
+          try {
+            const option = await queryAsRequestingUser(request, `SELECT status FROM databricks_architect_agent.agent_demo.architecture_option_decision WHERE proposal_id = '${escape(proposalId)}' AND option_id = '${optionId}'`);
+            if (option.length !== 1 || option[0].status !== 'PENDING_APPROVAL') throw new Error('This option is no longer awaiting a decision.');
+            if (decision === 'APPROVED') {
+              await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_option_decision SET status = CASE WHEN option_id = '${optionId}' THEN 'APPROVED' ELSE 'REJECTED_NOT_SELECTED' END, decision_reason = CASE WHEN option_id = '${optionId}' THEN '${escape(reason.trim())}' ELSE 'A different architecture option was approved.' END, decided_by = current_user(), decided_at = current_timestamp() WHERE proposal_id = '${escape(proposalId)}' AND status = 'PENDING_APPROVAL'`);
+              await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_proposal SET status = 'APPROVED', reviewed_at = current_timestamp(), reviewed_by = current_user() WHERE proposal_id = '${escape(proposalId)}'`);
+              await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_request SET status = 'APPROVED', updated_at = current_timestamp() WHERE active_proposal_id = '${escape(proposalId)}'`);
+              await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_review_package SET svg_path = '/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts/${escape(proposalId)}_${optionId}.svg', png_path = '/Volumes/databricks_architect_agent/agent_demo/architecture_artifacts/${escape(proposalId)}_${optionId}.png' WHERE proposal_id = '${escape(proposalId)}'`);
+            } else {
+              await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_option_decision SET status = 'REJECTED', decision_reason = '${escape(reason.trim())}', decided_by = current_user(), decided_at = current_timestamp() WHERE proposal_id = '${escape(proposalId)}' AND option_id = '${optionId}' AND status = 'PENDING_APPROVAL'`);
+              const pending = await queryAsRequestingUser(request, `SELECT count(*) AS pending_count FROM databricks_architect_agent.agent_demo.architecture_option_decision WHERE proposal_id = '${escape(proposalId)}' AND status = 'PENDING_APPROVAL'`);
+              if (Number(pending[0]?.pending_count) === 0) {
+                await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_proposal SET status = 'REJECTED', reviewed_at = current_timestamp(), reviewed_by = current_user() WHERE proposal_id = '${escape(proposalId)}'`);
+                await queryAsRequestingUser(request, `UPDATE databricks_architect_agent.agent_demo.architecture_request SET status = 'REJECTED', updated_at = current_timestamp() WHERE active_proposal_id = '${escape(proposalId)}'`);
+              }
+            }
+            response.json({ proposalId, optionId, decision });
+          } finally {
+            await queryAsRequestingUser(request, `DELETE FROM databricks_architect_agent.agent_demo.architecture_decision_lock WHERE proposal_id = '${escape(proposalId)}' AND lock_holder = '${lockHolder}'`);
           }
-          response.json({ proposalId, optionId, decision });
         } catch (error) {
           response.status(409).json({ error: error instanceof Error ? error.message : 'Unable to record the option decision.' });
         }
@@ -265,7 +280,7 @@ createApp({
         const escape = (value: string) => value.replace(/'/g, "''");
         const conversationId = createHash('sha256').update(`${proposalId}|${content}`).digest('hex').slice(0, 32);
         try {
-          await queryAsRequestingUser(request, `INSERT INTO databricks_architect_agent.agent_demo.architecture_conversation VALUES ('${conversationId}', '${escape(proposalId)}', 2, 'GENIE', '${escape(content)}', 'FULL_ARCHITECTURE_RESPONSE', current_timestamp())`);
+          await queryAsRequestingUser(request, `INSERT INTO databricks_architect_agent.agent_demo.architecture_conversation SELECT '${conversationId}', requirement_id, 2, 'GENIE', '${escape(content)}', 'FULL_ARCHITECTURE_RESPONSE', current_timestamp() FROM databricks_architect_agent.agent_demo.architecture_proposal WHERE proposal_id = '${escape(proposalId)}'`);
           response.status(201).json({ proposalId });
         } catch (error) {
           response.status(500).json({ error: error instanceof Error ? error.message : 'Unable to retain the Genie response.' });

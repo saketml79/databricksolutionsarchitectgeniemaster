@@ -3,6 +3,7 @@ import { ArrowUpRight, BookOpenCheck, Database, FileImage, ShieldCheck } from 'l
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { selectedProposalAfterGeneration, shouldClearSelectedProposal } from './proposalReview';
 import { formatElapsedTime, normalizeMarkdown } from './responseContent';
 
 const workspaceUrl = 'https://adb-1866518241053589.9.azuredatabricks.net';
@@ -77,7 +78,10 @@ export default function App() {
       const response = await fetch(`/api/proposals/${encodeURIComponent(reviewPackage.proposal_id)}/options/${optionId}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, reason }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to record option decision.');
-      if (decision === 'APPROVED') setPackages((current) => current.filter((item) => item.proposal_id !== reviewPackage.proposal_id));
+      const refreshedPackages = await fetch('/api/review-packages?view=pending');
+      const refreshed = await readApiJson<{ rows?: ReviewPackage[] }>(refreshedPackages, 'Unable to refresh pending proposals.');
+      setPackages(refreshed.rows ?? []);
+      if (shouldClearSelectedProposal((refreshed.rows ?? []).map((item) => item.proposal_id), reviewPackage.proposal_id)) setSelectedProposalId('');
     } catch (error) {
       setDecisionError(error instanceof Error ? error.message : 'Unable to record option decision.');
     } finally { setDecisionInFlight(''); }
@@ -150,7 +154,7 @@ export default function App() {
         const payload = await refreshedPackages.json();
         if (!refreshedPackages.ok) throw new Error(payload.error ?? 'The proposal was created, but the pending review queue could not be refreshed.');
         setPackages(payload.rows ?? []);
-        if (payload.rows?.some((reviewPackage: ReviewPackage) => reviewPackage.proposal_id === generatedProposalId)) setSelectedProposalId(generatedProposalId);
+        setSelectedProposalId(selectedProposalAfterGeneration((payload.rows ?? []).map((reviewPackage: ReviewPackage) => reviewPackage.proposal_id), generatedProposalId));
       }
       setProgressStage('complete');
     } catch (error) {

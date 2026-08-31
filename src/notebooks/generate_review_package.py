@@ -1,5 +1,6 @@
 # Databricks notebook source
 import base64
+import html
 import json
 import os
 import subprocess
@@ -20,16 +21,28 @@ if len(proposal) != 1:
 record = proposal[0].asDict()
 root = f"/Volumes/{catalog}/{schema}/architecture_artifacts/{proposal_id}"
 option_svg_paths = [f"{root}_option_{index}.svg" for index in range(1, 4)]
-svg_path, png_path, evidence_path, pdf_path = option_svg_paths[0], f"{root}_option_1.png", f"{root}_option_1.references.json", f"{root}.pdf"
-if not all(os.path.exists(path) for path in option_svg_paths) or not os.path.exists(png_path) or not os.path.exists(evidence_path):
+option_png_paths = [f"{root}_option_{index}.png" for index in range(1, 4)]
+svg_path, png_path, evidence_path, pdf_path = option_svg_paths[0], option_png_paths[0], f"{root}_option_1.references.json", f"{root}.pdf"
+if not all(os.path.exists(path) for path in option_svg_paths + option_png_paths) or not os.path.exists(evidence_path):
     raise ValueError("proposal diagram artifacts and evidence manifest must exist before creating a review package")
 
-with open(png_path, "rb") as png_file:
-    encoded_png = base64.b64encode(png_file.read()).decode()
+encoded_pngs = []
+for option_png_path in option_png_paths:
+    with open(option_png_path, "rb") as png_file:
+        encoded_pngs.append(base64.b64encode(png_file.read()).decode())
 with open(evidence_path, "r", encoding="utf-8") as evidence_file:
     manifest = json.load(evidence_file)
 evidence_text = json.dumps(manifest.get("evidence", {}), indent=2)
-html = f"""<!doctype html><html><head><meta charset='utf-8'><style>@page{{size:A4;margin:18mm}}body{{font-family:Arial,sans-serif;color:#173b3d}}h1{{font-size:26px;margin:0}}h2{{font-size:15px;margin-top:24px;color:#126b62}}.status{{display:inline-block;margin:12px 0;padding:6px 10px;background:#dbe976;font-weight:bold}}img{{width:100%;border:1px solid #b8d2ca}}pre{{white-space:pre-wrap;background:#f1f7f4;padding:12px;font-size:9px}}.footer{{margin-top:22px;color:#607b7b;font-size:10px}}</style></head><body><h1>Databricks Solutions Architect</h1><p>{record['title']}</p><div class='status'>{record['status']}</div><h2>Recommendation</h2><p>{record['recommendation']}</p><h2>Generated architecture diagram</h2><img src='data:image/png;base64,{encoded_png}' alt='Generated architecture diagram'><h2>Evidence register</h2><pre>{evidence_text}</pre><h2>Migration sequence</h2><pre>{record['migration_plan_json']}</pre><h2>Draft IaC outline</h2><pre>{record['draft_iac_json']}</pre><p class='footer'>Review package only. No infrastructure was provisioned, altered, or deployed.</p></body></html>"""
+response_rows = spark.sql(f"""SELECT content FROM `{catalog}`.`{schema}`.architecture_conversation AS conversation
+INNER JOIN `{catalog}`.`{schema}`.architecture_proposal AS proposal ON conversation.request_id = proposal.requirement_id
+WHERE proposal.proposal_id = '{escaped_proposal_id}' AND conversation.content_type = 'FULL_ARCHITECTURE_RESPONSE'
+ORDER BY conversation.created_at DESC LIMIT 1""").collect()
+genie_response = response_rows[0].content if response_rows else "Genie response was not retained for this review package."
+diagram_html = "".join(
+    f"<section class='diagram'><h2>Architecture option {index}</h2><img src='data:image/png;base64,{encoded_png}' alt='Architecture option {index}'></section>"
+    for index, encoded_png in enumerate(encoded_pngs, start=1)
+)
+html = f"""<!doctype html><html><head><meta charset='utf-8'><style>@page{{size:A4;margin:18mm}}body{{max-width:960px;margin:0 auto;padding:28px;font-family:Arial,sans-serif;color:#173b3d;line-height:1.5}}h1{{font-size:28px;margin:0}}h2{{font-size:17px;margin:28px 0 10px;color:#126b62}}.status{{display:inline-block;margin:12px 0;padding:6px 10px;background:#dbe976;font-weight:bold}}.diagram{{break-inside:avoid;margin:24px 0}}img{{width:100%;border:1px solid #b8d2ca}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f7f4;padding:14px;font-size:11px}}.footer{{margin-top:28px;color:#607b7b;font-size:10px}}</style></head><body><h1>Databricks Solutions Architect</h1><p>{html.escape(record['title'])}</p><div class='status'>{html.escape(record['status'])}</div><h2>Recommendation</h2><p>{html.escape(record['recommendation'])}</p>{diagram_html}<h2>Complete Genie response</h2><pre>{html.escape(genie_response)}</pre><h2>Evidence register</h2><pre>{html.escape(evidence_text)}</pre><h2>Migration sequence</h2><pre>{html.escape(record['migration_plan_json'])}</pre><h2>Draft IaC outline</h2><pre>{html.escape(record['draft_iac_json'])}</pre><p class='footer'>Review package only. No infrastructure was provisioned, altered, or deployed.</p></body></html>"""
 dbutils.fs.put(f"{root}.review.html", html, True)
 try:
     from reportlab.lib.pagesizes import A4
