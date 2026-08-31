@@ -211,7 +211,7 @@ export default function App() {
   const inProgress = progressStage !== 'complete';
   const elapsedTime = startedAt ? formatElapsedTime(startedAt, now) : '00:00';
   const selectedReviewPackage = packages.find((reviewPackage) => reviewPackage.proposal_id === selectedProposalId);
-  const reviewActionsDisabled = chatting || !!pendingApproval;
+  const reviewActionsDisabled = progressStage !== 'complete' || chatting || !!pendingApproval;
 
   return <main className="architect-shell">
     <header className="masthead">
