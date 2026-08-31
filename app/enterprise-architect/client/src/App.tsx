@@ -30,7 +30,6 @@ export default function App() {
   const [chatting, setChatting] = useState(false);
   const [progressStage, setProgressStage] = useState<'grounding' | 'approval' | 'rendering' | 'complete'>('complete');
   const [threadId, setThreadId] = useState('');
-  const [genieConversationId, setGenieConversationId] = useState('');
   const [pendingApproval, setPendingApproval] = useState<{ approvalId: string; streamId: string }>();
   const [generatedArtifact, setGeneratedArtifact] = useState<GeneratedArtifact>();
   const [startedAt, setStartedAt] = useState<number>();
@@ -87,13 +86,7 @@ export default function App() {
     if (!requestText.trim()) return;
     setChatting(true); setProgressStage('grounding'); setStartedAt(Date.now()); setNow(Date.now()); setChatError(''); setAgentResponse(''); setPendingApproval(undefined); setGeneratedArtifact(undefined);
     try {
-      const genieResponse = await fetch('/api/genie/respond', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: requestText, conversationId: genieConversationId || undefined }) });
-      const nativeGenie = await readApiJson<{ content?: string; conversationId?: string }>(genieResponse, 'The deployed Genie space could not complete the request.');
-      if (!nativeGenie.content) throw new Error('The deployed Genie space completed without a text response.');
-      setAgentResponse(nativeGenie.content);
-      setGenieConversationId(nativeGenie.conversationId ?? '');
-      setProgressStage('rendering');
-      const response = await fetch('/api/agents/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: `EXACT_NATIVE_TRANSCRIPT\nCreate only the governed review package for this exact Genie response. Do not write any user-facing prose.\n\nOriginal request:\n${requestText}\n\nGenie conversation ID: ${nativeGenie.conversationId ?? ''}\n\nExact Genie response:\n${nativeGenie.content}`, threadId: threadId || undefined, agent: 'solutionsArchitect' }) });
+      const response = await fetch('/api/agents/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: requestText, threadId: threadId || undefined, agent: 'solutionsArchitect' }) });
       if (!response.headers.get('content-type')?.includes('text/event-stream')) {
         throw new Error('The localhost preview does not run the Databricks App API. Open the deployed App to generate or review architecture packages.');
       }
@@ -103,7 +96,8 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let pending = '';
-      const completeResponse = nativeGenie.content;
+      let completeResponse = '';
+      let lastResponseItemId = '';
       let generatedProposalId = '';
       let toolResultMessage = '';
       while (true) {
@@ -116,6 +110,12 @@ export default function App() {
           const data = event.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
           if (!data) continue;
           const payload = JSON.parse(data);
+          if (payload.type === 'response.output_text.delta') {
+            const messageBoundary = lastResponseItemId && lastResponseItemId !== payload.item_id ? '\n\n' : '';
+            lastResponseItemId = payload.item_id ?? lastResponseItemId;
+            completeResponse += messageBoundary + payload.delta;
+            setAgentResponse((current) => current + messageBoundary + payload.delta);
+          }
           if (payload.type === 'response.output_item.done' && payload.item?.type === 'function_call_output') {
             try {
               const artifact = JSON.parse(payload.item.output);
@@ -123,7 +123,6 @@ export default function App() {
               if (artifact.option_artifacts && artifact.proposal_id) {
                 generatedProposalId = artifact.proposal_id;
                 setGeneratedArtifact(artifact);
-                setProgressStage('complete');
                 setShowArchived(false);
               }
               else if (artifact.status === 'FAILED') setChatError(artifact.message ?? 'The governed artifact generator did not complete.');
@@ -151,6 +150,7 @@ export default function App() {
         if (!refreshedPackages.ok) throw new Error(payload.error ?? 'The proposal was created, but the pending review queue could not be refreshed.');
         setPackages(payload.rows ?? []);
       }
+      setProgressStage('complete');
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'The Solutions Architect could not complete the request.');
     } finally { setChatting(false); }

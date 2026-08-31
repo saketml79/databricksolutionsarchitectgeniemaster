@@ -20,7 +20,7 @@ if len(proposal) != 1:
 record = proposal[0].asDict()
 root = f"/Volumes/{catalog}/{schema}/architecture_artifacts/{proposal_id}"
 option_svg_paths = [f"{root}_option_{index}.svg" for index in range(1, 4)]
-svg_path, png_path, evidence_path, pdf_path = option_svg_paths[0], f"{root}_option_1.png", f"{root}.references.json", f"{root}.pdf"
+svg_path, png_path, evidence_path, pdf_path = option_svg_paths[0], f"{root}_option_1.png", f"{root}_option_1.references.json", f"{root}.pdf"
 if not all(os.path.exists(path) for path in option_svg_paths) or not os.path.exists(png_path) or not os.path.exists(evidence_path):
     raise ValueError("proposal diagram artifacts and evidence manifest must exist before creating a review package")
 
