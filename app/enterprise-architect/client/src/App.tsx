@@ -39,7 +39,6 @@ export default function App() {
   const [pdfInFlight, setPdfInFlight] = useState(false);
 
   useEffect(() => {
-    setSelectedProposalId('');
     fetch(`/api/review-packages?view=${showArchived ? 'archived' : 'pending'}`).then(async (response) => {
       const payload = await readApiJson<{ rows?: ReviewPackage[] }>(response, 'Unable to load review packages.');
       setPackages(payload.rows ?? []);
@@ -151,6 +150,7 @@ export default function App() {
         const payload = await refreshedPackages.json();
         if (!refreshedPackages.ok) throw new Error(payload.error ?? 'The proposal was created, but the pending review queue could not be refreshed.');
         setPackages(payload.rows ?? []);
+        if (payload.rows?.some((reviewPackage: ReviewPackage) => reviewPackage.proposal_id === generatedProposalId)) setSelectedProposalId(generatedProposalId);
       }
       setProgressStage('complete');
     } catch (error) {
