@@ -39,6 +39,10 @@ resources:
           job:
             id: 73978804815672
             permission: CAN_MANAGE_RUN
+        - name: architect-review-package
+          job:
+            id: 520045804977801
+            permission: CAN_MANAGE_RUN
 
       # Start the app automatically on deploy.
       lifecycle:
